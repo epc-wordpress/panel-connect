@@ -48,7 +48,7 @@ app.use((req, res, next) => {
   });
 });
 
-const { API_USER, CLIENT_IP, SERVER_API_URL, SERVER_API_TOKEN, TEAM, NO_NC, DRY_RUN } = process.env;
+const { NAME, CLIENT_IP, SERVER_API_URL, SERVER_API_TOKEN, TEAM, NO_NC, DRY_RUN } = process.env;
 
 async function fetchAndSendInfo() {
   const bandwidth = await getBandwidth(); 
@@ -95,7 +95,7 @@ const sendDomainsToServer = async (domains, balances, bandwidth, apiUrl, token) 
     const teamId = teamResponse.data.teamId;
     //send account
     const accountData = {
-      server_name: API_USER,
+      server_name: NAME,
       hosting_price: 0.00,
       team_id: teamId,
       availableBalance: (balances) ? (balances.availableBalance || 0.00) : 0.00,

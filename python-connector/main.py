@@ -1,12 +1,15 @@
 import os
 import json
 import asyncio
+import base64
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import jwt as pyjwt
-from jwcrypto import jwk
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from service.namecheap import fetch_namecheap
@@ -52,14 +55,32 @@ async def _fetch_jwks():
     except Exception:
         return None
 
+def _rsa_key_from_jwks(jwks_key: dict) -> Optional[bytes]:
+    """Convert JWKS RSA key to PEM format."""
+    try:
+        # Extract RSA components from JWKS
+        e = int.from_bytes(base64.urlsafe_b64decode(jwks_key['e'] + '=='), 'big')
+        n = int.from_bytes(base64.urlsafe_b64decode(jwks_key['n'] + '=='), 'big')
+        
+        # Create RSA public key
+        public_numbers = rsa.RSAPublicNumbers(e, n)
+        public_key = public_numbers.public_key(default_backend())
+        
+        # Serialize to PEM
+        pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return pem
+    except Exception:
+        return None
+
 async def _get_public_key_for_kid(kid: str) -> Optional[bytes]:
     if not _jwks_cache.get("keys"):
         await _fetch_jwks()
     for key in _jwks_cache.get("keys", []):
-        if key.get("kid") == kid:
-            jw = jwk.JWK(**key)
-            pem = jw.export_public_to_pem()
-            return pem
+        if key.get("kid") == kid and key.get("kty") == "RSA":
+            return _rsa_key_from_jwks(key)
     return None
 
 

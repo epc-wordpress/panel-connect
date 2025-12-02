@@ -17,5 +17,4 @@ async def get_bandwidth(client: httpx.AsyncClient):
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        # return None or empty dict to mirror original behavior
         return {"error": str(e)}

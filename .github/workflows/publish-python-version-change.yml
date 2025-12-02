@@ -83,5 +83,5 @@ jobs:
           file: ./python-connector/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/panel-connect-python:${{ steps.version_check.outputs.version_after }}
-            ghcr.io/${{ github.repository_owner }}/panel-connect-python:latest
+            ghcr.io/${{ github.repository_owner }}/panel-connect:${{ steps.version_check.outputs.version_after }}
+            ghcr.io/${{ github.repository_owner }}/panel-connect:latest

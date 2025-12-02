@@ -37,7 +37,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# simple jwks cache
 _jwks_cache = {"keys": []}
 
 async def _fetch_jwks():
@@ -66,7 +65,6 @@ async def _get_public_key_for_kid(kid: str) -> Optional[bytes]:
 
 @app.middleware("http")
 async def verify_jwt_middleware(request: Request, call_next):
-    # Allow OPTIONS
     if request.method == "OPTIONS":
         return await call_next(request)
 
@@ -79,14 +77,12 @@ async def verify_jwt_middleware(request: Request, call_next):
         return HTTPException(status_code=401, detail="Token is missing")
 
     try:
-        # get header to extract kid
         header = pyjwt.get_unverified_header(token)
         kid = header.get("kid")
         pub_pem = await _get_public_key_for_kid(kid)
         if not pub_pem:
             raise Exception("Public key for kid not found")
         decoded = pyjwt.decode(token, pub_pem, algorithms=["RS256"], options={"verify_aud": False})
-        # attach to state
         request.state.user = decoded
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -99,7 +95,6 @@ async def verify_jwt_middleware(request: Request, call_next):
 async def send_domains_to_server(domains, balances, bandwidth):
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            # send team
             team_resp = await client.post(
                 f"{SERVER_API_URL}/api/team/update-team",
                 json={"name": TEAM},
@@ -152,7 +147,6 @@ async def send_domains_to_server(domains, balances, bandwidth):
                         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
                     )
                 except Exception as e:
-                    # log and continue
                     print("Error sending domains:", e)
 
     except Exception as e:
@@ -204,13 +198,11 @@ async def fetch_endpoint(request: Request):
 
 @app.on_event("startup")
 async def startup_event():
-    # run once at startup
     try:
         await fetch_and_send_info()
     except Exception as e:
         print("Error fetching domains at startup:", e)
 
-    # schedule every 6 hours
     scheduler = AsyncIOScheduler()
     scheduler.add_job(lambda: asyncio.create_task(fetch_and_send_info()), "cron", hour="*/6")
     scheduler.start()

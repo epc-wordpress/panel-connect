@@ -1,0 +1,87 @@
+name: Build & Publish Python Connector on Version Change
+
+# Trigger only when python-connector/VERSION changes on main
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'python-connector/VERSION'
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-and-publish-python:
+    name: Check version and publish python-connector
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version before and after
+        id: version_check
+        run: |
+          set -e
+          BEFORE=${{ github.event.before }}
+          AFTER=${{ github.sha }}
+
+          # default values
+          version_before=""
+          version_after=""
+
+          # if previous commit is null (branch creation), treat as changed
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            version_after=$(cat python-connector/VERSION | tr -d '\n' || echo "")
+            echo "version_before=$version_before" >> $GITHUB_OUTPUT
+            echo "version_after=$version_after" >> $GITHUB_OUTPUT
+            echo "changed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if git cat-file -e ${BEFORE}:python-connector/VERSION 2>/dev/null; then
+            version_before=$(git show ${BEFORE}:python-connector/VERSION | tr -d '\n' || echo "")
+          fi
+
+          if git cat-file -e ${AFTER}:python-connector/VERSION 2>/dev/null; then
+            version_after=$(git show ${AFTER}:python-connector/VERSION | tr -d '\n' || echo "")
+          else
+            # fallback to working tree value
+            version_after=$(cat python-connector/VERSION | tr -d '\n' || echo "")
+          fi
+
+          echo "version_before=$version_before" >> $GITHUB_OUTPUT
+          echo "version_after=$version_after" >> $GITHUB_OUTPUT
+
+          if [ "$version_before" != "$version_after" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Exit if version did not change
+        if: steps.version_check.outputs.changed != 'true'
+        run: echo "VERSION did not change. Exiting."
+
+      - name: Log in to GHCR
+        if: steps.version_check.outputs.changed == 'true'
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push python-connector image
+        if: steps.version_check.outputs.changed == 'true'
+        uses: docker/build-push-action@v4
+        with:
+          context: ./python-connector
+          file: ./python-connector/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/panel-connect-python:${{ steps.version_check.outputs.version_after }}
+            ghcr.io/${{ github.repository_owner }}/panel-connect-python:latest

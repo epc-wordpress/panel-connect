@@ -58,7 +58,8 @@ async def _get_public_key_for_kid(kid: str) -> Optional[bytes]:
     for key in _jwks_cache.get("keys", []):
         if key.get("kid") == kid:
             jw = jwk.JWK(**key)
-            pem = jw.export_to_pem(public_key=True, password=None)
+            # export_to_pem() automatically exports as public key for RSA keys
+            pem = jw.serialize(format='pem')
             return pem
     return None
 

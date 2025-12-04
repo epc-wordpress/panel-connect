@@ -1,3 +1,4 @@
+import logging
 import os
 import httpx
 import xmltodict
@@ -6,6 +7,7 @@ from urllib.parse import quote
 API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
+logger = logging.getLogger(__name__)
 
 
 async def fetch_balances(client: httpx.AsyncClient):
@@ -15,48 +17,42 @@ async def fetch_balances(client: httpx.AsyncClient):
             f"&UserName={quote(API_USER)}&Command=namecheap.users.getBalances&ClientIp={quote(CLIENT_IP)}"
         )
 
+        logger.info(f"Requesting Namecheap balances: {api_url}")
+
         r = await client.get(api_url)
+        logger.info(f"Received response status: {r.status_code}")
+        logger.debug(f"Raw response: {r.text}")
+
         r.raise_for_status()
 
-        print("=== RAW RESPONSE ===")
-        print(r.text)
-
         data = xmltodict.parse(r.text)
-
-        print("=== PARSED DATA ===")
-        print(json.dumps(data, indent=2))
+        logger.debug(f"Parsed XML: {data}")
 
         command_response = data.get("ApiResponse", {}).get("CommandResponse")
         if not command_response:
-            print("ERROR: CommandResponse not found")
+            logger.error("No CommandResponse in response")
             return None
 
         balance_result = command_response.get("UserGetBalancesResult")
         if not balance_result:
-            print("ERROR: UserGetBalancesResult not found")
+            logger.error("No UserGetBalancesResult in response")
             return None
 
-        print("=== BALANCE NODE ===")
-        print(balance_result)
-
-        currency = balance_result.get("@Currency")
-        available = balance_result.get("@AvailableBalance")
-        acc_balance = balance_result.get("@AccountBalance")
-
-        print(f"=== PARSED BALANCES: currency={currency}, available={available}, accountBalance={acc_balance} ===")
+        logger.info(f"Balance node: {balance_result}")
 
         return {
-            "currency": currency,
-            "availableBalance": float(available or 0),
-            "accountBalance": float(acc_balance or 0),
+            "currency": balance_result.get("@Currency"),
+            "availableBalance": float(balance_result.get("@AvailableBalance") or 0),
+            "accountBalance": float(balance_result.get("@AccountBalance") or 0),
             "earnedAmount": float(balance_result.get("@EarnedAmount") or 0),
             "withdrawableAmount": float(balance_result.get("@WithdrawableAmount") or 0),
             "fundsRequiredForAutoRenew": float(balance_result.get("@FundsRequiredForAutoRenew") or 0),
         }
 
     except Exception as e:
-        print("ERROR in fetch_balances:", e)
+        logger.exception("Error in fetch_balances")
         raise
+
 
 
 

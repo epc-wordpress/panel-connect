@@ -1,4 +1,3 @@
-import logging
 import os
 import httpx
 import xmltodict
@@ -8,8 +7,6 @@ API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 async def fetch_balances(client: httpx.AsyncClient):
     try:
@@ -17,34 +14,48 @@ async def fetch_balances(client: httpx.AsyncClient):
             f"https://api.namecheap.com/xml.response?ApiUser={quote(API_USER)}&ApiKey={quote(API_KEY)}"
             f"&UserName={quote(API_USER)}&Command=namecheap.users.getBalances&ClientIp={quote(CLIENT_IP)}"
         )
-        logger.debug("Requesting Namecheap balances: %s", api_url)
 
         r = await client.get(api_url)
-        logger.debug("HTTP status: %s", r.status_code)
-        logger.debug("Response text: %.500s...", r.text)  # первые 500 символов для безопасности
-
         r.raise_for_status()
+
+        print("=== RAW RESPONSE ===")
+        print(r.text)
+
         data = xmltodict.parse(r.text)
 
-        logger.debug("Parsed XML to dict: %s", data)
+        print("=== PARSED DATA ===")
+        print(json.dumps(data, indent=2))
 
         command_response = data.get("ApiResponse", {}).get("CommandResponse")
         if not command_response:
-            raise RuntimeError("Invalid response structure: CommandResponse not found")
+            print("ERROR: CommandResponse not found")
+            return None
 
-        balance_result = command_response[0].get("UserGetBalancesResult")[0].get("@")
-        logger.debug("Balance result dict: %s", balance_result)
+        balance_result = command_response.get("UserGetBalancesResult")
+        if not balance_result:
+            print("ERROR: UserGetBalancesResult not found")
+            return None
+
+        print("=== BALANCE NODE ===")
+        print(balance_result)
+
+        currency = balance_result.get("@Currency")
+        available = balance_result.get("@AvailableBalance")
+        acc_balance = balance_result.get("@AccountBalance")
+
+        print(f"=== PARSED BALANCES: currency={currency}, available={available}, accountBalance={acc_balance} ===")
 
         return {
-            "currency": balance_result.get("Currency"),
-            "availableBalance": float(balance_result.get("AvailableBalance") or 0),
-            "accountBalance": float(balance_result.get("AccountBalance") or 0),
-            "earnedAmount": float(balance_result.get("EarnedAmount") or 0),
-            "withdrawableAmount": float(balance_result.get("WithdrawableAmount") or 0),
-            "fundsRequiredForAutoRenew": float(balance_result.get("FundsRequiredForAutoRenew") or 0),
+            "currency": currency,
+            "availableBalance": float(available or 0),
+            "accountBalance": float(acc_balance or 0),
+            "earnedAmount": float(balance_result.get("@EarnedAmount") or 0),
+            "withdrawableAmount": float(balance_result.get("@WithdrawableAmount") or 0),
+            "fundsRequiredForAutoRenew": float(balance_result.get("@FundsRequiredForAutoRenew") or 0),
         }
+
     except Exception as e:
-        logger.exception("Error fetching balances")
+        print("ERROR in fetch_balances:", e)
         raise
 
 

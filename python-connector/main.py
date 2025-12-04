@@ -14,6 +14,9 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from service.namecheap import fetch_namecheap
 from service.whm import get_bandwidth
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 load_dotenv()
 

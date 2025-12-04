@@ -187,7 +187,17 @@ def format_date(date_str: Optional[str]):
 
 async def fetch_and_send_info():
     async with httpx.AsyncClient(verify=True, timeout=60) as client:
-        bandwidth = await get_bandwidth(client)
+        # WHM often uses a self-signed cert; create a short-lived client with
+        # verify=False specifically for the WHM request so other calls remain
+        # verified.
+        bandwidth = {}
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=60) as insecure_client:
+                bandwidth = await get_bandwidth(insecure_client)
+        except Exception as e:
+            # preserve behavior: return an error object for bandwidth
+            print("Error fetching bandwidth with insecure client:", e)
+            bandwidth = {"error": str(e)}
 
         if DRY_RUN:
             print("Dry run mode enabled. Skipping sending domains to server.")

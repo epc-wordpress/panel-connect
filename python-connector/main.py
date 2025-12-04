@@ -91,11 +91,11 @@ async def verify_jwt_middleware(request: Request, call_next):
 
     auth = request.headers.get("authorization")
     if not auth:
-        return HTTPException(status_code=401, detail="Token is missing")
+        raise HTTPException(status_code=401, detail="Token is missing")
     try:
         token = auth.split(" ")[1]
     except Exception:
-        return HTTPException(status_code=401, detail="Token is missing")
+        raise HTTPException(status_code=401, detail="Token is missing")
 
     try:
         header = pyjwt.get_unverified_header(token)

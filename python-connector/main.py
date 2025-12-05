@@ -145,37 +145,93 @@ async def send_domains_to_server(domains, balances, bandwidth):
             acc_resp.raise_for_status()
             account_id = acc_resp.json().get("accountId")
 
-            if isinstance(domains, list) and domains:
-                domain_data_array = []
-                for domain in domains:
-                    attrs = domain.get("$") or domain.get("@") or domain
+            if not (isinstance(domains, list) and domains):
+                return
 
-                    domain_data_array.append(
-                        {
-                            "AccountId": account_id,
-                            "Name": attrs.get("Name") or attrs.get("@Name"),
-                            "AutoRenew": (attrs.get("AutoRenew") or attrs.get("@AutoRenew")) == "true",
-                            "Created": format_date(attrs.get("Created") or attrs.get("@Created")),
-                            "Expires": format_date(attrs.get("Expires") or attrs.get("@Expires")),
-                            "IsExpired": (attrs.get("IsExpired") or attrs.get("@IsExpired")) == "true",
-                            "IsLocked": (attrs.get("IsLocked") or attrs.get("@IsLocked")) == "true",
-                            "IsOurDNS": (attrs.get("IsOurDNS") or attrs.get("@IsOurDNS")) == "true",
-                            "User": API_USER,
-                        }
-                    )
+            domain_data_array = []
+            for domain in domains:
+                attrs = None
 
-                data_to_send = {"accountId": account_id, "domains": domain_data_array}
-                try:
-                    await client.post(
-                        f"{SERVER_API_URL}/api/domains/array",
-                        json=data_to_send,
-                        headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
-                    )
-                except Exception as e:
-                    print("Error sending domains:", e)
+                if isinstance(domain, dict):
+                    if "$" in domain and isinstance(domain["$"], dict):
+                        attrs = domain["$"]
+                    elif "@" in domain and isinstance(domain["@"], dict):
+                        attrs = domain["@"]
+                    else:
+                        has_at_keys = any(k.startswith("@") for k in domain.keys())
+                        if has_at_keys:
+                            attrs = {}
+                            for k, v in domain.items():
+                                if isinstance(k, str) and k.startswith("@"):
+                                    attrs[k[1:]] = v
+                                else:
+                                    attrs[k] = v
+                        else:
+                            attrs = domain.copy()
+                else:
+                    attrs = {}
+
+                def get_attr(*names, default=None):
+                    for n in names:
+                        if n is None:
+                            continue
+                        v = attrs.get(n)
+                        if v is not None:
+                            return v
+                    return default
+
+                name = get_attr("Name", "name")
+                if not name:
+                    logging.warning("Skipping domain with no name, raw domain: %s", domain)
+                    continue
+
+                auto_renew_raw = get_attr("AutoRenew", "autoRenew", "auto_renew", default="false")
+                created_raw = get_attr("Created", "created")
+                expires_raw = get_attr("Expires", "expires")
+                isexpired_raw = get_attr("IsExpired", "isExpired", "is_expired", default="false")
+                islocked_raw = get_attr("IsLocked", "isLocked", "is_locked", default="false")
+                isourdns_raw = get_attr("IsOurDNS", "isOurDNS", "is_our_dns", default="false")
+                user_raw = get_attr("User", "user") or API_USER
+
+                auto_renew = True if str(auto_renew_raw).lower() == "true" else False
+                is_expired = True if str(isexpired_raw).lower() == "true" else False
+                is_locked = True if str(islocked_raw).lower() == "true" else False
+                is_our_dns = True if str(isourdns_raw).lower() == "true" else False
+
+                domain_data_array.append({
+                    "AccountId": account_id,
+                    "Name": name,
+                    "AutoRenew": auto_renew,
+                    "Created": format_date(created_raw),
+                    "Expires": format_date(expires_raw),
+                    "IsExpired": is_expired,
+                    "IsLocked": is_locked,
+                    "IsOurDNS": is_our_dns,
+                    "User": user_raw,
+                })
+
+            data_to_send = {"accountId": account_id, "domains": domain_data_array}
+
+            logging.debug("Sending domains payload: %s", json.dumps(data_to_send, default=str))
+
+            try:
+                resp = await client.post(
+                    f"{SERVER_API_URL}/api/domains/array",
+                    json=data_to_send,
+                    headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
+                )
+                if resp.status_code >= 400:
+                    logging.error("domains/array returned %s: %s", resp.status_code, resp.text)
+                    resp.raise_for_status()
+                else:
+                    logging.info("Domains successfully sent, server response: %s", resp.text)
+            except httpx.HTTPStatusError as exc:
+                logging.exception("HTTP error sending domains: %s", exc)
+            except Exception:
+                logging.exception("Error sending domains to server")
 
     except Exception as e:
-        print("Error sending domains to the server:", e)
+        logging.exception("Error sending domains to the server")
 
 
 def format_date(date_str: Optional[str]):

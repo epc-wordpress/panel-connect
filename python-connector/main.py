@@ -58,15 +58,10 @@ async def _fetch_jwks():
 def _rsa_key_from_jwks(jwks_key: dict) -> Optional[bytes]:
     """Convert JWKS RSA key to PEM format."""
     try:
-        # Extract RSA components from JWKS
         e = int.from_bytes(base64.urlsafe_b64decode(jwks_key['e'] + '=='), 'big')
         n = int.from_bytes(base64.urlsafe_b64decode(jwks_key['n'] + '=='), 'big')
-        
-        # Create RSA public key
         public_numbers = rsa.RSAPublicNumbers(e, n)
         public_key = public_numbers.public_key(default_backend())
-        
-        # Serialize to PEM
         pem = public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -82,7 +77,6 @@ async def _get_public_key_for_kid(kid: str) -> Optional[bytes]:
         if key.get("kid") == kid and key.get("kty") == "RSA":
             return _rsa_key_from_jwks(key)
     return None
-
 
 @app.middleware("http")
 async def verify_jwt_middleware(request: Request, call_next):
@@ -112,179 +106,139 @@ async def verify_jwt_middleware(request: Request, call_next):
 
     return await call_next(request)
 
-
 async def send_domains_to_server(domains, balances, bandwidth):
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            team_resp = await client.post(
-                f"{SERVER_API_URL}/api/team/update-team",
-                json={"name": TEAM},
-                headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
-            )
-            team_resp.raise_for_status()
-            team_id = team_resp.json().get("teamId")
+    async with httpx.AsyncClient(timeout=20) as client:
+        team_resp = await client.post(
+            f"{SERVER_API_URL}/api/team/update-team",
+            json={"name": TEAM},
+            headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
+        )
+        team_resp.raise_for_status()
+        team_id = team_resp.json().get("teamId")
 
-            account_data = {
-                "server_name": NAME,
-                "hosting_price": 0.00,
-                "team_id": team_id,
-                "availableBalance": balances.get("availableBalance") if balances else 0.00,
-                "fundsRequiredForAutoRenew": balances.get("fundsRequiredForAutoRenew") if balances else 0.00,
-                "client_ip": CLIENT_IP,
-                "bandwidth": bandwidth,
-            }
+        account_data = {
+            "server_name": NAME,
+            "hosting_price": 0.00,
+            "team_id": team_id,
+            "availableBalance": balances.get("availableBalance") if balances else 0.00,
+            "fundsRequiredForAutoRenew": balances.get("fundsRequiredForAutoRenew") if balances else 0.00,
+            "client_ip": CLIENT_IP,
+            "bandwidth": bandwidth,
+        }
 
-            acc_resp = await client.post(
-                f"{SERVER_API_URL}/api/team/update-account",
-                json=account_data,
-                headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
-            )
-            acc_resp.raise_for_status()
-            account_id = acc_resp.json().get("accountId")
+        acc_resp = await client.post(
+            f"{SERVER_API_URL}/api/team/update-account",
+            json=account_data,
+            headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
+        )
+        acc_resp.raise_for_status()
+        account_id = acc_resp.json().get("accountId")
 
-            if not (isinstance(domains, list) and domains):
-                return
+        if not (isinstance(domains, list) and domains):
+            return
 
-            domain_data_array = []
-            for domain in domains:
-                attrs = None
-
-                if isinstance(domain, dict):
-                    if "$" in domain and isinstance(domain["$"], dict):
-                        attrs = domain["$"]
-                    elif "@" in domain and isinstance(domain["@"], dict):
-                        attrs = domain["@"]
-                    else:
-                        has_at_keys = any(k.startswith("@") for k in domain.keys())
-                        if has_at_keys:
-                            attrs = {}
-                            for k, v in domain.items():
-                                if isinstance(k, str) and k.startswith("@"):
-                                    attrs[k[1:]] = v
-                                else:
-                                    attrs[k] = v
-                        else:
-                            attrs = domain.copy()
+        domain_data_array = []
+        for domain in domains:
+            attrs = {}
+            if isinstance(domain, dict):
+                if "$" in domain and isinstance(domain["$"], dict):
+                    attrs = domain["$"]
+                elif "@" in domain and isinstance(domain["@"], dict):
+                    attrs = domain["@"]
                 else:
-                    attrs = {}
+                    has_at_keys = any(k.startswith("@") for k in domain.keys())
+                    if has_at_keys:
+                        for k, v in domain.items():
+                            attrs[k[1:] if isinstance(k, str) and k.startswith("@") else k] = v
+                    else:
+                        attrs = domain.copy()
 
-                def get_attr(*names, default=None):
-                    for n in names:
-                        if n is None:
-                            continue
-                        v = attrs.get(n)
-                        if v is not None:
-                            return v
-                    return default
+            def get_attr(*names, default=None):
+                for n in names:
+                    if n is None:
+                        continue
+                    v = attrs.get(n)
+                    if v is not None:
+                        return v
+                return default
 
-                name = get_attr("Name", "name")
-                if not name:
-                    continue
+            name = get_attr("Name", "name")
+            if not name:
+                continue
 
-                auto_renew_raw = get_attr("AutoRenew", "autoRenew", "auto_renew", default="false")
-                created_raw = get_attr("Created", "created")
-                expires_raw = get_attr("Expires", "expires")
-                isexpired_raw = get_attr("IsExpired", "isExpired", "is_expired", default="false")
-                islocked_raw = get_attr("IsLocked", "isLocked", "is_locked", default="false")
-                isourdns_raw = get_attr("IsOurDNS", "isOurDNS", "is_our_dns", default="false")
-                user_raw = get_attr("User", "user") or API_USER
+            auto_renew_raw = get_attr("AutoRenew", "autoRenew", "auto_renew", default="false")
+            created_raw = get_attr("Created", "created")
+            expires_raw = get_attr("Expires", "expires")
+            isexpired_raw = get_attr("IsExpired", "isExpired", "is_expired", default="false")
+            islocked_raw = get_attr("IsLocked", "isLocked", "is_locked", default="false")
+            isourdns_raw = get_attr("IsOurDNS", "isOurDNS", "is_our_dns", default="false")
+            user_raw = get_attr("User", "user") or API_USER
 
-                auto_renew = True if str(auto_renew_raw).lower() == "true" else False
-                is_expired = True if str(isexpired_raw).lower() == "true" else False
-                is_locked = True if str(islocked_raw).lower() == "true" else False
-                is_our_dns = True if str(isourdns_raw).lower() == "true" else False
+            auto_renew = str(auto_renew_raw).lower() == "true"
+            is_expired = str(isexpired_raw).lower() == "true"
+            is_locked = str(islocked_raw).lower() == "true"
+            is_our_dns = str(isourdns_raw).lower() == "true"
 
-                domain_data_array.append({
-                    "AccountId": account_id,
-                    "Name": name,
-                    "AutoRenew": auto_renew,
-                    "Created": format_date(created_raw),
-                    "Expires": format_date(expires_raw),
-                    "IsExpired": is_expired,
-                    "IsLocked": is_locked,
-                    "IsOurDNS": is_our_dns,
-                    "User": user_raw,
-                })
+            domain_data_array.append({
+                "AccountId": account_id,
+                "Name": name,
+                "AutoRenew": auto_renew,
+                "Created": format_date(created_raw),
+                "Expires": format_date(expires_raw),
+                "IsExpired": is_expired,
+                "IsLocked": is_locked,
+                "IsOurDNS": is_our_dns,
+                "User": user_raw,
+            })
 
-            data_to_send = {"accountId": account_id, "domains": domain_data_array}
+        data_to_send = {"accountId": account_id, "domains": domain_data_array}
 
-            try:
-                resp = await client.post(
-                    f"{SERVER_API_URL}/api/domains/array",
-                    json=data_to_send,
-                    headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
-                )
-                if resp.status_code >= 400:
-                    resp.raise_for_status()
-
-    except Exception as e:
-        print("Error sending domains to server:", e)
-
+        resp = await client.post(
+            f"{SERVER_API_URL}/api/domains/array",
+            json=data_to_send,
+            headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
 
 def format_date(date_str: Optional[str]):
     if not date_str:
         return None
     try:
         month, day, year = date_str.split('/')
-        formatted = f"{year}-{int(month):02d}-{int(day):02d}"
-        return formatted
+        return f"{year}-{int(month):02d}-{int(day):02d}"
     except Exception:
         return date_str
 
-
 async def fetch_and_send_info():
     async with httpx.AsyncClient(verify=True, timeout=60) as client:
-        # WHM often uses a self-signed cert; create a short-lived client with
-        # verify=False specifically for the WHM request so other calls remain
-        # verified.
         bandwidth = {}
         try:
             async with httpx.AsyncClient(verify=False, timeout=60) as insecure_client:
                 bandwidth = await get_bandwidth(insecure_client)
         except Exception as e:
-            # preserve behavior: return an error object for bandwidth
-            print("Error fetching bandwidth with insecure client:", e)
             bandwidth = {"error": str(e)}
 
         if DRY_RUN:
-            print("Dry run mode enabled. Skipping sending domains to server.")
             return "Dry run mode enabled"
 
         info = {"allDomains": [], "balances": {}}
-
-        if NO_NC:
-            print("No Namecheap mode enabled. Skipping fetching domains from Namecheap.")
-        else:
+        if not NO_NC:
             info = await fetch_namecheap(client)
 
         await send_domains_to_server(info.get("allDomains", []), info.get("balances", {}), bandwidth)
-
-        if isinstance(info.get("allDomains"), list):
-            print(f"Fetched {len(info.get('allDomains'))} domains from Namecheap.")
-        else:
-            print("No domains were fetched or allDomains is not an array.")
-
+        return f"Fetched {len(info.get('allDomains', []))} domains"
 
 @app.get("/fetch-namecheap-domains")
 async def fetch_endpoint(request: Request):
-    try:
-        result = await fetch_and_send_info()
-        return {"result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    result = await fetch_and_send_info()
+    return {"result": result}
 
 @app.on_event("startup")
 async def startup_event():
-    try:
-        await fetch_and_send_info()
-    except Exception as e:
-        print("Error fetching domains at startup:", e)
-
+    await fetch_and_send_info()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(lambda: asyncio.create_task(fetch_and_send_info()), "cron", hour="*/6")
     scheduler.start()
-
 
 if __name__ == "__main__":
     import uvicorn

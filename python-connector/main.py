@@ -148,18 +148,18 @@ async def send_domains_to_server(domains, balances, bandwidth):
             if isinstance(domains, list) and domains:
                 domain_data_array = []
                 for domain in domains:
-                    attrs = domain.get("$", {})
+                    attrs = domain.get("$") or domain.get("@") or domain
 
                     domain_data_array.append(
                         {
                             "AccountId": account_id,
-                            "Name": attrs.get("Name"),
-                            "AutoRenew": attrs.get("AutoRenew") == "true",
-                            "Created": format_date(attrs.get("Created")),
-                            "Expires": format_date(attrs.get("Expires")),
-                            "IsExpired": attrs.get("IsExpired") == "true",
-                            "IsLocked": attrs.get("IsLocked") == "true",
-                            "IsOurDNS": attrs.get("IsOurDNS") == "true",
+                            "Name": attrs.get("Name") or attrs.get("@Name"),
+                            "AutoRenew": (attrs.get("AutoRenew") or attrs.get("@AutoRenew")) == "true",
+                            "Created": format_date(attrs.get("Created") or attrs.get("@Created")),
+                            "Expires": format_date(attrs.get("Expires") or attrs.get("@Expires")),
+                            "IsExpired": (attrs.get("IsExpired") or attrs.get("@IsExpired")) == "true",
+                            "IsLocked": (attrs.get("IsLocked") or attrs.get("@IsLocked")) == "true",
+                            "IsOurDNS": (attrs.get("IsOurDNS") or attrs.get("@IsOurDNS")) == "true",
                             "User": API_USER,
                         }
                     )

@@ -1,4 +1,3 @@
-import logging
 import os
 import httpx
 import xmltodict
@@ -7,7 +6,6 @@ from urllib.parse import quote
 API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
-logger = logging.getLogger(__name__)
 
 
 async def fetch_balances(client: httpx.AsyncClient):
@@ -19,28 +17,19 @@ async def fetch_balances(client: httpx.AsyncClient):
             f"&ClientIp={quote(CLIENT_IP)}"
         )
 
-        logger.info(f"Requesting Namecheap balances: {api_url}")
-
         r = await client.get(api_url)
-        logger.info(f"Received response status: {r.status_code}")
-        logger.debug(f"Raw response: {r.text}")
 
         r.raise_for_status()
 
         data = xmltodict.parse(r.text)
-        logger.debug(f"Parsed XML: {data}")
 
         command_response = data.get("ApiResponse", {}).get("CommandResponse")
         if not command_response:
-            logger.error("No CommandResponse in response")
             return None
 
         balance_result = command_response.get("UserGetBalancesResult")
         if not balance_result:
-            logger.error("No UserGetBalancesResult in response")
             return None
-
-        logger.info(f"Balance node: {balance_result}")
 
         return {
             "currency": balance_result.get("@Currency"),
@@ -52,7 +41,6 @@ async def fetch_balances(client: httpx.AsyncClient):
         }
 
     except Exception:
-        logger.exception("Error in fetch_balances")
         raise
 
 
@@ -110,7 +98,6 @@ async def fetch_namecheap(client: httpx.AsyncClient):
         }
 
     except Exception as e:
-        logger.exception("Error in fetch_namecheap")
         return {
             "status": "error",
             "message": str(e),

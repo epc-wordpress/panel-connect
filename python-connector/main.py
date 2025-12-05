@@ -14,9 +14,6 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from service.namecheap import fetch_namecheap
 from service.whm import get_bandwidth
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
 
 load_dotenv()
 
@@ -182,7 +179,6 @@ async def send_domains_to_server(domains, balances, bandwidth):
 
                 name = get_attr("Name", "name")
                 if not name:
-                    logging.warning("Skipping domain with no name, raw domain: %s", domain)
                     continue
 
                 auto_renew_raw = get_attr("AutoRenew", "autoRenew", "auto_renew", default="false")
@@ -212,8 +208,6 @@ async def send_domains_to_server(domains, balances, bandwidth):
 
             data_to_send = {"accountId": account_id, "domains": domain_data_array}
 
-            logging.debug("Sending domains payload: %s", json.dumps(data_to_send, default=str))
-
             try:
                 resp = await client.post(
                     f"{SERVER_API_URL}/api/domains/array",
@@ -221,17 +215,10 @@ async def send_domains_to_server(domains, balances, bandwidth):
                     headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
                 )
                 if resp.status_code >= 400:
-                    logging.error("domains/array returned %s: %s", resp.status_code, resp.text)
                     resp.raise_for_status()
-                else:
-                    logging.info("Domains successfully sent, server response: %s", resp.text)
-            except httpx.HTTPStatusError as exc:
-                logging.exception("HTTP error sending domains: %s", exc)
-            except Exception:
-                logging.exception("Error sending domains to server")
 
     except Exception as e:
-        logging.exception("Error sending domains to the server")
+        print("Error sending domains to server:", e)
 
 
 def format_date(date_str: Optional[str]):

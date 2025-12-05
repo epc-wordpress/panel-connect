@@ -148,7 +148,8 @@ async def send_domains_to_server(domains, balances, bandwidth):
             if isinstance(domains, list) and domains:
                 domain_data_array = []
                 for domain in domains:
-                    attrs = domain.get("@", {})
+                    attrs = domain.get("$", {})
+
                     domain_data_array.append(
                         {
                             "AccountId": account_id,

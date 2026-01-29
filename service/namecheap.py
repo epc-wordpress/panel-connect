@@ -104,3 +104,49 @@ async def fetch_namecheap(client: httpx.AsyncClient):
             "allDomains": [],
             "balances": {},
         }
+
+async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
+    try:
+        sld, tld = domain.split(".", 1)
+
+        api_url = (
+            f"https://api.namecheap.com/xml.response?"
+            f"ApiUser={quote(API_USER)}&ApiKey={quote(API_KEY)}"
+            f"&UserName={quote(API_USER)}"
+            f"&Command=namecheap.domains.dns.getHosts"
+            f"&SLD={quote(sld)}&TLD={quote(tld)}"
+            f"&ClientIp={quote(CLIENT_IP)}"
+        )
+
+        r = await client.get(api_url)
+        r.raise_for_status()
+
+        data = xmltodict.parse(r.text)
+
+        command_response = data.get("ApiResponse", {}).get("CommandResponse")
+        if not command_response:
+            return []
+
+        result = command_response.get("DomainDNSGetHostsResult")
+        if not result:
+            return []
+
+        hosts = result.get("host", [])
+        if isinstance(hosts, dict):
+            hosts = [hosts]
+
+        records = []
+        for h in hosts:
+            records.append({
+                "name": h.get("@Name"),
+                "type": h.get("@Type"),
+                "address": h.get("@Address"),
+                "mxPref": h.get("@MXPref"),
+                "ttl": h.get("@TTL"),
+                "isActive": h.get("@IsActive") == "true",
+            })
+
+        return records
+
+    except Exception:
+        raise

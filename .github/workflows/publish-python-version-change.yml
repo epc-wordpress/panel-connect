@@ -1,11 +1,11 @@
-name: Build & Publish Python Connector on Version Change
+name: Build & Publish Connector on Version Change
 
-# Trigger only when python-connector/VERSION changes on main
+# Trigger only when VERSION changes on main
 on:
   push:
     branches: [ main ]
     paths:
-      - 'python-connector/VERSION'
+      - 'VERSION'
 
 permissions:
   contents: read
@@ -13,8 +13,8 @@ permissions:
   id-token: write
 
 jobs:
-  build-and-publish-python:
-    name: Check version and publish python-connector
+  build-and-publish-connector:
+    name: Check version and publish connector
     runs-on: ubuntu-latest
 
     steps:
@@ -36,22 +36,22 @@ jobs:
 
           # if previous commit is null (branch creation), treat as changed
           if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            version_after=$(cat python-connector/VERSION | tr -d '\n' || echo "")
+            version_after=$(cat VERSION | tr -d '\n' || echo "")
             echo "version_before=$version_before" >> $GITHUB_OUTPUT
             echo "version_after=$version_after" >> $GITHUB_OUTPUT
             echo "changed=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          if git cat-file -e ${BEFORE}:python-connector/VERSION 2>/dev/null; then
-            version_before=$(git show ${BEFORE}:python-connector/VERSION | tr -d '\n' || echo "")
+          if git cat-file -e ${BEFORE}:VERSION 2>/dev/null; then
+            version_before=$(git show ${BEFORE}:VERSION | tr -d '\n' || echo "")
           fi
 
-          if git cat-file -e ${AFTER}:python-connector/VERSION 2>/dev/null; then
-            version_after=$(git show ${AFTER}:python-connector/VERSION | tr -d '\n' || echo "")
+          if git cat-file -e ${AFTER}:VERSION 2>/dev/null; then
+            version_after=$(git show ${AFTER}:VERSION | tr -d '\n' || echo "")
           else
             # fallback to working tree value
-            version_after=$(cat python-connector/VERSION | tr -d '\n' || echo "")
+            version_after=$(cat VERSION | tr -d '\n' || echo "")
           fi
 
           echo "version_before=$version_before" >> $GITHUB_OUTPUT
@@ -80,7 +80,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./python-connector
-          file: ./python-connector/Dockerfile
+          file: ./Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/panel-connect:${{ steps.version_check.outputs.version_after }}

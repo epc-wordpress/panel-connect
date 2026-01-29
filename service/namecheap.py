@@ -7,6 +7,20 @@ API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
 
+def _extract_namecheap_error(data: dict) -> str | None:
+    api = (data or {}).get("ApiResponse") or {}
+    if str(api.get("@Status", "")).upper() != "ERROR":
+        return None
+    errors = api.get("Errors", {}).get("Error")
+    if not errors:
+        return "NameCheap API error"
+    if isinstance(errors, list):
+        msg = "; ".join([str(e.get("#text") or e) for e in errors])
+        return msg or "NameCheap API error"
+    if isinstance(errors, dict):
+        return str(errors.get("#text") or "NameCheap API error")
+    return str(errors)
+
 
 async def fetch_balances(client: httpx.AsyncClient):
     try:
@@ -107,7 +121,16 @@ async def fetch_namecheap(client: httpx.AsyncClient):
 
 async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
     try:
-        sld, tld = domain.split(".", 1)
+        if not (API_USER and API_KEY and CLIENT_IP):
+            raise RuntimeError("NameCheap env vars missing: API_USER/API_KEY/CLIENT_IP")
+
+        d = (domain or "").strip()
+        d = d.replace("https://", "").replace("http://", "")
+        d = d.split("/")[0].strip().rstrip(".")
+        if d.count(".") < 1:
+            raise ValueError("Invalid domain. Expected format: example.com")
+
+        sld, tld = d.split(".", 1)
 
         api_url = (
             f"https://api.namecheap.com/xml.response?"
@@ -122,6 +145,9 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
         r.raise_for_status()
 
         data = xmltodict.parse(r.text)
+        err = _extract_namecheap_error(data)
+        if err:
+            raise RuntimeError(err)
 
         command_response = data.get("ApiResponse", {}).get("CommandResponse")
         if not command_response:
@@ -143,7 +169,7 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
                 "address": h.get("@Address"),
                 "mxPref": h.get("@MXPref"),
                 "ttl": h.get("@TTL"),
-                "isActive": h.get("@IsActive") == "true",
+                "isActive": str(h.get("@IsActive")).lower() == "true",
             })
 
         return records

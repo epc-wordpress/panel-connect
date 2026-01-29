@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from service.namecheap import fetch_namecheap
+from service.namecheap import fetch_namecheap, fetch_domain_dns_records
 from service.whm import get_bandwidth
 
 load_dotenv()
@@ -232,6 +232,19 @@ async def fetch_and_send_info():
 async def fetch_endpoint(request: Request):
     result = await fetch_and_send_info()
     return {"result": result}
+
+@app.get("/dns-records/{domain}")
+async def get_dns_records(domain: str, request: Request):
+    try:
+        async with httpx.AsyncClient(verify=True, timeout=60) as client:
+            records = await fetch_domain_dns_records(client, domain)
+            return {
+                "domain": domain,
+                "records": records,
+                "count": len(records)
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():

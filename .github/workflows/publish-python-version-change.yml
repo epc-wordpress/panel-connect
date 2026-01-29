@@ -75,11 +75,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push python-connector image
+      - name: Build and push connector image
         if: steps.version_check.outputs.changed == 'true'
         uses: docker/build-push-action@v4
         with:
-          context: ./python-connector
+          context: .
           file: ./Dockerfile
           push: true
           tags: |

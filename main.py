@@ -4,6 +4,8 @@ import asyncio
 import base64
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import jwt as pyjwt
@@ -12,7 +14,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from service.namecheap import fetch_namecheap, fetch_domain_dns_records
+from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
 from service.whm import get_bandwidth
 
 load_dotenv()
@@ -233,6 +235,16 @@ async def fetch_endpoint(request: Request):
     result = await fetch_and_send_info()
     return {"result": result}
 
+class DNSRecord(BaseModel):
+    name: str
+    type: str
+    address: str
+    mxPref: Optional[int] = None
+    ttl: Optional[int] = None
+
+class DNSRecordsUpdate(BaseModel):
+    records: List[DNSRecord]
+
 @app.get("/dns-records/{domain}")
 async def get_dns_records(domain: str, request: Request):
     try:
@@ -245,6 +257,22 @@ async def get_dns_records(domain: str, request: Request):
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {str(e)}")
+
+@app.put("/dns-records/{domain}")
+async def update_dns_records(domain: str, update_data: DNSRecordsUpdate, request: Request):
+    try:
+        async with httpx.AsyncClient(verify=True, timeout=60) as client:
+            records_data = [record.dict() for record in update_data.records]
+            result = await set_domain_dns_records(client, domain, records_data)
+            return {
+                "domain": result.get("domain"),
+                "success": result.get("success"),
+                "records_count": len(records_data)
+            }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update DNS records: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():

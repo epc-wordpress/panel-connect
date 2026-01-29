@@ -176,3 +176,84 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
 
     except Exception:
         raise
+
+async def set_domain_dns_records(client: httpx.AsyncClient, domain: str, records: list):
+    try:
+        if not (API_USER and API_KEY and CLIENT_IP):
+            raise RuntimeError("NameCheap env vars missing: API_USER/API_KEY/CLIENT_IP")
+
+        d = (domain or "").strip()
+        d = d.replace("https://", "").replace("http://", "")
+        d = d.split("/")[0].strip().rstrip(".")
+        if d.count(".") < 1:
+            raise ValueError("Invalid domain. Expected format: example.com")
+
+        sld, tld = d.split(".", 1)
+
+        if not isinstance(records, list):
+            raise ValueError("Records must be a list")
+
+        params = {
+            "ApiUser": quote(API_USER),
+            "ApiKey": quote(API_KEY),
+            "UserName": quote(API_USER),
+            "Command": "namecheap.domains.dns.setHosts",
+            "SLD": quote(sld),
+            "TLD": quote(tld),
+            "ClientIp": quote(CLIENT_IP),
+        }
+
+        for idx, record in enumerate(records, start=1):
+            if not isinstance(record, dict):
+                raise ValueError(f"Record {idx} must be a dictionary")
+
+            name = record.get("name")
+            record_type = record.get("type")
+            address = record.get("address")
+
+            if not name or not record_type or not address:
+                raise ValueError(f"Record {idx} missing required fields: name, type, address")
+
+            params[f"HostName{idx}"] = quote(str(name))
+            params[f"RecordType{idx}"] = quote(str(record_type).upper())
+            params[f"Address{idx}"] = quote(str(address))
+
+            if record_type.upper() == "MX" and record.get("mxPref") is not None:
+                params[f"MXPref{idx}"] = quote(str(record.get("mxPref")))
+
+            if record.get("ttl") is not None:
+                ttl = int(record.get("ttl"))
+                if ttl < 60 or ttl > 60000:
+                    raise ValueError(f"Record {idx} TTL must be between 60 and 60000")
+                params[f"TTL{idx}"] = quote(str(ttl))
+
+        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+        api_url = f"https://api.namecheap.com/xml.response?{query_string}"
+
+        r = await client.get(api_url)
+        r.raise_for_status()
+
+        data = xmltodict.parse(r.text)
+        err = _extract_namecheap_error(data)
+        if err:
+            raise RuntimeError(err)
+
+        command_response = data.get("ApiResponse", {}).get("CommandResponse")
+        if not command_response:
+            raise RuntimeError("Invalid response structure: CommandResponse not found")
+
+        result = command_response.get("DomainDNSSetHostsResult")
+        if not result:
+            raise RuntimeError("Invalid response structure: DomainDNSSetHostsResult not found")
+
+        is_success = str(result.get("@IsSuccess", "")).lower() == "true"
+        if not is_success:
+            raise RuntimeError(f"Failed to set DNS records for domain {domain}")
+
+        return {
+            "domain": result.get("@Domain"),
+            "success": is_success,
+        }
+
+    except Exception:
+        raise

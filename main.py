@@ -308,13 +308,19 @@ async def update_dns_records(domain: str, update_data: DNSRecordsUpdate, request
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update DNS records: {str(e)}")
 
+scheduler: AsyncIOScheduler | None = None
+
 @app.on_event("startup")
 async def startup_event():
+    global scheduler
+
     await fetch_and_send_info()
+
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: asyncio.create_task(fetch_and_send_info()), "cron", hour="*/6")
+    scheduler.add_job(
+        lambda: asyncio.create_task(fetch_and_send_info()),
+        trigger="cron",
+        hour="*/6",
+    )
     scheduler.start()
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT)

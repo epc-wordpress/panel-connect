@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import httpx
 import jwt as pyjwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
 from service.whm import get_bandwidth
+
 
 load_dotenv()
 
@@ -87,26 +89,58 @@ async def verify_jwt_middleware(request: Request, call_next):
 
     auth = request.headers.get("authorization")
     if not auth:
-        raise HTTPException(status_code=401, detail="Token is missing")
-    try:
-        token = auth.split(" ")[1]
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token is missing")
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Token is missing"},
+        )
+
+    parts = auth.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid Authorization header"},
+        )
+
+    token = parts[1]
 
     try:
         header = pyjwt.get_unverified_header(token)
         kid = header.get("kid")
+        if not kid:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token header missing kid"},
+            )
+
         pub_pem = await _get_public_key_for_kid(kid)
         if not pub_pem:
-            raise Exception("Public key for kid not found")
-        decoded = pyjwt.decode(token, pub_pem, algorithms=["RS256"], options={"verify_aud": False})
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Public key for kid not found"},
+            )
+
+        decoded = pyjwt.decode(
+            token,
+            pub_pem,
+            algorithms=["RS256"],
+            options={"verify_aud": False},
+        )
+
         request.state.user = decoded
+
     except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Token expired"},
+        )
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        return JSONResponse(
+            status_code=401,
+            content={"detail": f"Invalid token: {str(e)}"},
+        )
 
     return await call_next(request)
+
 
 async def send_domains_to_server(domains, balances, bandwidth):
     async with httpx.AsyncClient(timeout=20) as client:

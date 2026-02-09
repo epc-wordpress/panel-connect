@@ -17,10 +17,6 @@ from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
 from service.whm import get_bandwidth
-import logging
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 _jwks_lock = asyncio.Lock()
 _jwks_fetched_at = 0
@@ -341,7 +337,7 @@ async def startup_event():
             try:
                 await fetch_and_send_info()
             except Exception as e:
-                logger.exception(e)
+                print(f"Error in cron fetch: {str(e)}")
             await asyncio.sleep(6 * 60 * 60)
 
     asyncio.create_task(loop())

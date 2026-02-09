@@ -15,9 +15,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
 from service.whm import get_bandwidth
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 _jwks_lock = asyncio.Lock()
 _jwks_fetched_at = 0
@@ -310,7 +313,6 @@ async def update_dns_records(domain: str, update_data: DNSRecordsUpdate, request
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update DNS records: {str(e)}")
 
-scheduler: AsyncIOScheduler | None = None
 
 @app.on_event("startup")
 async def startup_event():
@@ -332,17 +334,18 @@ async def startup_event():
         ),
     )
 
-    global scheduler
-
     await fetch_and_send_info()
 
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        lambda: asyncio.create_task(fetch_and_send_info()),
-        trigger="cron",
-        hour="*/6",
-    )
-    scheduler.start()
+    async def loop():
+        while True:
+            try:
+                await fetch_and_send_info()
+            except Exception as e:
+                logger.exception(e)
+            await asyncio.sleep(6 * 60 * 60)
+
+    asyncio.create_task(loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

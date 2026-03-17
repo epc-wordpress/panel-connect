@@ -36,6 +36,7 @@ TEAM = os.getenv("TEAM")
 NO_NC = os.getenv("NO_NC", "false").lower() == "true"
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 API_USER = os.getenv("API_USER")
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 app = FastAPI()
 
@@ -262,6 +263,8 @@ async def fetch_and_send_info():
     info = {"allDomains": [], "balances": {}}
     if not NO_NC:
         info = await fetch_namecheap(client)
+        if DEBUG:
+            print(info)
     await send_domains_to_server(info.get("allDomains", []), info.get("balances", {}), bandwidth)
     return f"Fetched {len(info.get('allDomains', []))} domains"
 

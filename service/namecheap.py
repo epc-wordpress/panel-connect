@@ -7,15 +7,18 @@ API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
 
-def _extract_namecheap_error(data: dict) -> str | None:
-    api = (data or {}).get("ApiResponse") or {}
+def _extract_namecheap_error(data: dict | None) -> str | None:
+    if not data:
+        return "Empty response from NameCheap"
+    api = data.get("ApiResponse") or {}
     if str(api.get("@Status", "")).upper() != "ERROR":
         return None
-    errors = api.get("Errors", {}).get("Error")
+    errors_container = api.get("Errors") or {}
+    errors = errors_container.get("Error")
     if not errors:
-        return "NameCheap API error"
+        return "NameCheap API error (no error details)"
     if isinstance(errors, list):
-        msg = "; ".join([str(e.get("#text") or e) for e in errors])
+        msg = "; ".join([str(e.get("#text") if isinstance(e, dict) else e) for e in errors])
         return msg or "NameCheap API error"
     if isinstance(errors, dict):
         return str(errors.get("#text") or "NameCheap API error")
@@ -36,11 +39,11 @@ async def fetch_balances(client: httpx.AsyncClient):
         r.raise_for_status()
 
         data = xmltodict.parse(r.text)
+        err = _extract_namecheap_error(data)
+        if err:
+            raise RuntimeError(err)
 
-        command_response = data.get("ApiResponse", {}).get("CommandResponse")
-        if not command_response:
-            return None
-
+        command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
         balance_result = command_response.get("UserGetBalancesResult")
         if not balance_result:
             return None
@@ -72,16 +75,17 @@ async def fetch_namecheap(client: httpx.AsyncClient):
         r.raise_for_status()
 
         data = xmltodict.parse(r.text)
-        command_response = data.get("ApiResponse", {}).get("CommandResponse")
-        if not command_response:
-            raise RuntimeError("Invalid response structure: CommandResponse not found")
+        err = _extract_namecheap_error(data)
+        if err:
+            raise RuntimeError(err)
 
-        paging = command_response.get("Paging", {})
+        command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
+        paging = command_response.get("Paging") or {}
         total_items = int(paging.get("TotalItems", 0) or 0)
         page_size = int(paging.get("PageSize", 100))
         total_pages = (total_items + page_size - 1) // page_size
 
-        domains_result = command_response.get("DomainGetListResult", {})
+        domains_result = command_response.get("DomainGetListResult") or {}
         all_domains = domains_result.get("Domain") or []
         if not isinstance(all_domains, list):
             all_domains = [all_domains]
@@ -91,11 +95,8 @@ async def fetch_namecheap(client: httpx.AsyncClient):
             r.raise_for_status()
 
             page_data = xmltodict.parse(r.text)
-            paginated_command = page_data.get("ApiResponse", {}).get("CommandResponse")
-            if not paginated_command:
-                raise RuntimeError(f"Invalid response structure on page {page}")
-
-            result = paginated_command.get("DomainGetListResult", {})
+            paginated_command = (page_data.get("ApiResponse") or {}).get("CommandResponse") or {}
+            result = paginated_command.get("DomainGetListResult") or {}
             domains_on_page = result.get("Domain") or []
 
             if isinstance(domains_on_page, list):
@@ -149,10 +150,7 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
         if err:
             raise RuntimeError(err)
 
-        command_response = data.get("ApiResponse", {}).get("CommandResponse")
-        if not command_response:
-            return []
-
+        command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
         result = command_response.get("DomainDNSGetHostsResult")
         if not result:
             return []

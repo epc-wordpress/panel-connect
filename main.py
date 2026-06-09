@@ -16,7 +16,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
-from service.whm import get_bandwidth
+from service.whm import get_bandwidth as whm_get_bandwidth
+from service.hestia import get_bandwidth as hestia_get_bandwidth, get_domains as hestia_get_domains
 
 _jwks_lock = asyncio.Lock()
 _jwks_fetched_at = 0
@@ -37,6 +38,7 @@ NO_NC = os.getenv("NO_NC", "false").lower() == "true"
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 API_USER = os.getenv("API_USER")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+PANEL_TYPE = os.getenv("PANEL_TYPE", "whm")
 
 app = FastAPI()
 
@@ -252,19 +254,37 @@ def format_date(date_str: Optional[str]):
 
 async def fetch_and_send_info():
     client = app.state.http_client
+    insecure_client = app.state.insecure_http_client
     bandwidth = {}
-    try:
-        insecure_client = app.state.insecure_http_client
-        bandwidth = await get_bandwidth(insecure_client)
-    except Exception as e:
-        bandwidth = {"error": str(e)}
-    if DRY_RUN:
-        return "Dry run mode enabled"
     info = {"allDomains": [], "balances": {}}
-    if not NO_NC:
-        info = await fetch_namecheap(client)
-        if DEBUG:
-            print(info)
+
+    if PANEL_TYPE == "hestia":
+        try:
+            bandwidth = await hestia_get_bandwidth(insecure_client)
+        except Exception as e:
+            bandwidth = {"error": str(e)}
+        if DRY_RUN:
+            return "Dry run mode enabled"
+        try:
+            domains = await hestia_get_domains(insecure_client)
+            info = {"allDomains": domains, "balances": {}}
+            if DEBUG:
+                print(info)
+        except Exception as e:
+            if DEBUG:
+                print(f"Hestia domains error: {e}")
+    else:
+        try:
+            bandwidth = await whm_get_bandwidth(insecure_client)
+        except Exception as e:
+            bandwidth = {"error": str(e)}
+        if DRY_RUN:
+            return "Dry run mode enabled"
+        if not NO_NC:
+            info = await fetch_namecheap(client)
+            if DEBUG:
+                print(info)
+
     await send_domains_to_server(info.get("allDomains", []), info.get("balances", {}), bandwidth)
     return f"Fetched {len(info.get('allDomains', []))} domains"
 

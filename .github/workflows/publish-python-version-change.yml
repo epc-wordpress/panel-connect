@@ -1,11 +1,12 @@
 name: Build & Publish Connector on Version Change
 
-# Trigger only when VERSION changes on main
+# Trigger only when VERSION changes on main, or manually
 on:
   push:
     branches: [ main ]
     paths:
       - 'VERSION'
+  workflow_dispatch:
 
 permissions:
   contents: read

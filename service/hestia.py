@@ -1,13 +1,11 @@
 import os
 import httpx
 
-CLIENT_IP = os.getenv("CLIENT_IP")
-# HESTIA_API_KEY format: "KEY_ID:KEY_SECRET" (from v-list-access-keys)
 HESTIA_API_KEY = os.getenv("HESTIA_API_KEY")
 
 
 def _hestia_url():
-    return f"https://{CLIENT_IP}:8083/api/"
+    return f"https://127.0.0.1:8083/api/"
 
 async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
     data = {

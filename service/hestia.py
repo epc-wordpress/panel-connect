@@ -24,14 +24,14 @@ async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
 
 
 async def _fetch_users_with_domains(client: httpx.AsyncClient) -> dict:
-    users_data = await _call(client, "v-list-users")
+    users_data = await _call(client, "v-list-users", "json")
     if not isinstance(users_data, dict):
         return {}
     result = {}
     for username, uinfo in users_data.items():
         domains = {}
         try:
-            d = await _call(client, "v-list-web-domains", username)
+            d = await _call(client, "v-list-web-domains", username, "json")
             if isinstance(d, dict):
                 domains = d
         except Exception:

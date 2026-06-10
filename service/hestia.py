@@ -1,25 +1,21 @@
 import os
 import httpx
 
-CLIENT_IP = os.getenv("CLIENT_IP")
-HESTIA_ADMIN = os.getenv("HESTIA_ADMIN", "admin")
 HESTIA_API_KEY = os.getenv("HESTIA_API_KEY")
 
 
 def _hestia_url():
-    return f"https://{CLIENT_IP}:8083/api/"
+    return f"https://127.0.0.1:8083/api/"
 
 
 async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
     data = {
-        "user": HESTIA_ADMIN,
         "hash": HESTIA_API_KEY,
-        "returncode": "no",
         "cmd": cmd,
     }
     for i, arg in enumerate(args, 1):
         data[f"arg{i}"] = arg
-    print(f"[hestia] {cmd} user={HESTIA_ADMIN} key_set={bool(HESTIA_API_KEY)}")
+    print(f"[hestia] {cmd} key_set={bool(HESTIA_API_KEY)}")
     r = await client.post(_hestia_url(), data=data, timeout=30)
     print(f"[hestia] {cmd} status={r.status_code}")
     r.raise_for_status()

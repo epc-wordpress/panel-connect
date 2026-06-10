@@ -83,6 +83,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          provenance: false
           tags: |
             ghcr.io/${{ github.repository_owner }}/panel-connect:${{ steps.version_check.outputs.version_after }}
             ghcr.io/${{ github.repository_owner }}/panel-connect:latest

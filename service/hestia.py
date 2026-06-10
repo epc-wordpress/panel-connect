@@ -16,9 +16,9 @@ async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
     }
     for i, arg in enumerate(args, 1):
         data[f"arg{i}"] = arg
-    print(f"[hestia] {cmd} key_set={bool(HESTIA_API_KEY)}")
+    print(f"[hestia] {cmd} args={args} key_set={bool(HESTIA_API_KEY)}")
     r = await client.post(_hestia_url(), data=data, timeout=30)
-    print(f"[hestia] {cmd} status={r.status_code}")
+    print(f"[hestia] {cmd} status={r.status_code} body_len={len(r.text)} body_preview={r.text[:200]!r}")
     r.raise_for_status()
     return r.json()
 
@@ -90,6 +90,7 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
             "owner": "root",
         })
 
+    print(f"[hestia] fetch_all users={list(users.keys())} total_domains={len(all_domains)} total_bytes={total_bytes}")
     bandwidth = {
         "metadata": {"reason": "OK", "command": "showbw", "result": 1, "version": 1},
         "data": {
@@ -99,3 +100,17 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
         },
     }
     return bandwidth, all_domains
+
+
+if __name__ == "__main__":
+    import asyncio, json
+
+    async def _test():
+        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+            bw, domains = await fetch_all(client)
+            print("\n=== bandwidth ===")
+            print(json.dumps(bw, indent=2))
+            print(f"\n=== domains ({len(domains)}) ===")
+            print(json.dumps(domains[:3], indent=2))
+
+    asyncio.run(_test())

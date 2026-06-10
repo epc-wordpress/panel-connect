@@ -346,7 +346,10 @@ async def startup_event():
         ),
     )
 
-    await fetch_and_send_info()
+    try:
+        await fetch_and_send_info()
+    except Exception as e:
+        print(f"Startup fetch failed (will retry in loop): {e}")
 
     async def loop():
         while True:

@@ -1,5 +1,6 @@
 import os
 import httpx
+from datetime import datetime, timezone
 
 HESTIA_API_KEY = os.getenv("HESTIA_API_KEY")
 
@@ -38,6 +39,13 @@ async def _fetch_users_with_domains(client: httpx.AsyncClient) -> dict:
     return result
 
 
+def _main_domain(domains: list[str]) -> str:
+    """Pick the most likely primary domain — fewest dots, then shortest."""
+    if not domains:
+        return ""
+    return min(domains, key=lambda d: (d.count("."), len(d)))
+
+
 async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
     """Returns (bandwidth_dict, domains_list) in one pass."""
     try:
@@ -45,24 +53,29 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
     except Exception as e:
         return {"error": str(e)}, []
 
+    now = datetime.now(timezone.utc)
     acct = []
     total_bytes = 0
     all_domains = []
 
-    for username, data in users.items():
-        uinfo = data["info"]
-        domains = data["domains"]
+    for username, udata in users.items():
+        if username == "admin":
+            continue
 
-        bw_mb = float(uinfo.get("U_BANDWIDTH", 0) or 0)
-        bw_bytes = int(bw_mb * 1024 * 1024)
-        total_bytes += bw_bytes
+        domains = udata["domains"]
+        if not domains:
+            continue
 
         bwusage = []
+        user_bytes = 0
+
         for domain_name, dinfo in domains.items():
-            d_bw_mb = float(dinfo.get("U_BANDWIDTH", 0) or 0)
+            bw_mb = float(dinfo.get("U_BANDWIDTH", 0) or 0)
+            bw_bytes = int(bw_mb * 1024 * 1024)
+            user_bytes += bw_bytes
             bwusage.append({
                 "domain": domain_name,
-                "usage": int(d_bw_mb * 1024 * 1024),
+                "usage": str(bw_bytes) if bw_bytes else 0,
                 "deleted": 0,
             })
             suspended = str(dinfo.get("SUSPENDED", "no")).lower() == "yes"
@@ -77,24 +90,29 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
                 "User": username,
             })
 
+        total_bytes += user_bytes
         acct.append({
+            "limit": 0,
+            "maindomain": _main_domain(list(domains.keys())),
             "user": username,
-            "maindomain": next(iter(domains), ""),
-            "totalbytes": bw_bytes,
-            "bwlimited": 0,
-            "bwusage": bwusage,
-            "deleted": 0,
             "reseller": 0,
+            "deleted": 0,
+            "bwusage": bwusage,
+            "bwlimited": 0,
             "owner": "root",
+            "totalbytes": user_bytes,
         })
 
-    print(f"[hestia] fetch_all users={list(users.keys())} total_domains={len(all_domains)} total_bytes={total_bytes}")
+    non_admin = [u for u in users if u != "admin"]
+    print(f"[hestia] fetch_all users={non_admin} total_domains={len(all_domains)} total_bytes={total_bytes}")
     bandwidth = {
-        "metadata": {"reason": "OK", "command": "showbw", "result": 1, "version": 1},
+        "metadata": {"result": 1, "version": 1, "command": "showbw", "reason": "OK"},
         "data": {
-            "totalused": str(total_bytes),
-            "acct": acct,
             "reseller": "root",
+            "acct": acct,
+            "totalused": str(total_bytes),
+            "month": now.month,
+            "year": now.year,
         },
     }
     return bandwidth, all_domains

@@ -17,7 +17,7 @@ from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from service.namecheap import fetch_namecheap, fetch_domain_dns_records, set_domain_dns_records
 from service.whm import get_bandwidth as whm_get_bandwidth
-from service.hestia import get_bandwidth as hestia_get_bandwidth, get_domains as hestia_get_domains
+from service.hestia import fetch_all as hestia_fetch_all
 
 _jwks_lock = asyncio.Lock()
 _jwks_fetched_at = 0
@@ -259,20 +259,13 @@ async def fetch_and_send_info():
     info = {"allDomains": [], "balances": {}}
 
     if PANEL_TYPE == "hestia":
-        try:
-            bandwidth = await hestia_get_bandwidth(insecure_client)
-        except Exception as e:
-            bandwidth = {"error": str(e)}
+        bandwidth, _ = await hestia_fetch_all(insecure_client)
         if DRY_RUN:
             return "Dry run mode enabled"
-        try:
-            domains = await hestia_get_domains(insecure_client)
-            info = {"allDomains": domains, "balances": {}}
+        if not NO_NC:
+            info = await fetch_namecheap(client)
             if DEBUG:
                 print(info)
-        except Exception as e:
-            if DEBUG:
-                print(f"Hestia domains error: {e}")
     else:
         try:
             bandwidth = await whm_get_bandwidth(insecure_client)

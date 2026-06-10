@@ -13,13 +13,15 @@ def _hestia_url():
 async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
     data = {
         "user": HESTIA_ADMIN,
-        "password": HESTIA_API_KEY,
+        "hash": HESTIA_API_KEY,
         "returncode": "no",
         "cmd": cmd,
     }
     for i, arg in enumerate(args, 1):
         data[f"arg{i}"] = arg
+    print(f"[hestia] {cmd} user={HESTIA_ADMIN} key_set={bool(HESTIA_API_KEY)}")
     r = await client.post(_hestia_url(), data=data, timeout=30)
+    print(f"[hestia] {cmd} status={r.status_code}")
     r.raise_for_status()
     return r.json()
 

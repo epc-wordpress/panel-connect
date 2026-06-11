@@ -176,6 +176,7 @@ async def send_domains_to_server(domains, balances, bandwidth):
         "availableBalance": balances.get("availableBalance") if balances else 0.00,
         "fundsRequiredForAutoRenew": balances.get("fundsRequiredForAutoRenew") if balances else 0.00,
         "client_ip": CLIENT_IP,
+        "panel": PANEL_TYPE,
         "bandwidth": bandwidth,
     }
     acc_resp = await client.post(

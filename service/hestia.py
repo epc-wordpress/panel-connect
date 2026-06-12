@@ -15,9 +15,7 @@ async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
     }
     for i, arg in enumerate(args, 1):
         data[f"arg{i}"] = arg
-    print(f"[hestia] {cmd} args={args} key_set={bool(HESTIA_API_KEY)}")
     r = await client.post(_hestia_url(), data=data, timeout=30)
-    print(f"[hestia] {cmd} status={r.status_code} body_len={len(r.text)} body_preview={r.text[:200]!r}")
     r.raise_for_status()
     return r.json()
 
@@ -103,8 +101,6 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
             "totalbytes": user_bytes,
         })
 
-    non_admin = [u for u in users if u != "admin"]
-    print(f"[hestia] fetch_all users={non_admin} total_domains={len(all_domains)} total_bytes={total_bytes}")
     bandwidth = {
         "metadata": {"result": 1, "version": 1, "command": "showbw", "reason": "OK"},
         "data": {

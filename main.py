@@ -169,12 +169,6 @@ def _raise_with_body(resp: httpx.Response, label: str):
 
 async def send_domains_to_server(domains, balances, bandwidth):
     client = app.state.http_client
-    bw_acct = (bandwidth or {}).get("data", {}).get("acct") if isinstance(bandwidth, dict) else None
-    if isinstance(bw_acct, list):
-        print(f"[send] bandwidth accounts={[a.get('user') for a in bw_acct]} domains_in_bandwidth={sum(len(a.get('bwusage') or []) for a in bw_acct)}")
-    else:
-        print(f"[send] bandwidth has no usable data.acct, raw={bandwidth!r}")
-
     team_resp = await client.post(
         f"{SERVER_API_URL}/api/team/update-team",
         json={"name": TEAM},
@@ -273,7 +267,6 @@ async def fetch_and_send_info():
     bandwidth = {}
     info = {"allDomains": [], "balances": {}}
 
-    print(f"[fetch] starting cycle, panel_type={PANEL_TYPE}")
     if PANEL_TYPE == "hestia":
         bandwidth, _ = await hestia_fetch_all(insecure_client)
         if DRY_RUN:

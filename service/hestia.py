@@ -21,24 +21,21 @@ async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
 
 
 async def _fetch_users_with_domains(client: httpx.AsyncClient) -> dict:
+    """Raises on any per-user failure — a partial user list must never be
+    reported as a valid snapshot, since the caller deletes hosted domains
+    that are missing from the snapshot it receives."""
     users_data = await _call(client, "v-list-users", "json")
     if not isinstance(users_data, dict):
-        print(f"[hestia] v-list-users returned non-dict, type={type(users_data).__name__} value={users_data!r}")
-        return {}
-    print(f"[hestia] v-list-users returned {len(users_data)} users: {list(users_data.keys())}")
+        raise ValueError(f"v-list-users returned non-dict: type={type(users_data).__name__} value={users_data!r}")
     result = {}
     for username, uinfo in users_data.items():
-        domains = {}
         try:
             d = await _call(client, "v-list-web-domains", username, "json")
-            if isinstance(d, dict):
-                domains = d
-            else:
-                print(f"[hestia] v-list-web-domains({username}) returned non-dict, type={type(d).__name__} value={d!r}")
         except Exception as e:
-            print(f"[hestia] v-list-web-domains({username}) FAILED: {type(e).__name__}: {e}")
-        print(f"[hestia] user={username} domains={list(domains.keys())}")
-        result[username] = {"info": uinfo, "domains": domains}
+            raise RuntimeError(f"v-list-web-domains({username}) failed: {type(e).__name__}: {e}") from e
+        if not isinstance(d, dict):
+            raise ValueError(f"v-list-web-domains({username}) returned non-dict: type={type(d).__name__} value={d!r}")
+        result[username] = {"info": uinfo, "domains": d}
     return result
 
 
@@ -110,7 +107,7 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
         })
 
     if skipped_users:
-        print(f"[hestia] skipped users with no domains (could be legit OR a failed fetch above): {skipped_users}")
+        print(f"[hestia] skipped users with genuinely zero domains: {skipped_users}")
     print(f"[hestia] fetch_all summary: accounts_sent={[a['user'] for a in acct]} total_domains={len(all_domains)} total_bytes={total_bytes}")
 
     bandwidth = {

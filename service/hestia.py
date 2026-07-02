@@ -23,7 +23,9 @@ async def _call(client: httpx.AsyncClient, cmd: str, *args) -> dict | list:
 async def _fetch_users_with_domains(client: httpx.AsyncClient) -> dict:
     users_data = await _call(client, "v-list-users", "json")
     if not isinstance(users_data, dict):
+        print(f"[hestia] v-list-users returned non-dict, type={type(users_data).__name__} value={users_data!r}")
         return {}
+    print(f"[hestia] v-list-users returned {len(users_data)} users: {list(users_data.keys())}")
     result = {}
     for username, uinfo in users_data.items():
         domains = {}
@@ -31,8 +33,11 @@ async def _fetch_users_with_domains(client: httpx.AsyncClient) -> dict:
             d = await _call(client, "v-list-web-domains", username, "json")
             if isinstance(d, dict):
                 domains = d
-        except Exception:
-            pass
+            else:
+                print(f"[hestia] v-list-web-domains({username}) returned non-dict, type={type(d).__name__} value={d!r}")
+        except Exception as e:
+            print(f"[hestia] v-list-web-domains({username}) FAILED: {type(e).__name__}: {e}")
+        print(f"[hestia] user={username} domains={list(domains.keys())}")
         result[username] = {"info": uinfo, "domains": domains}
     return result
 
@@ -49,12 +54,14 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
     try:
         users = await _fetch_users_with_domains(client)
     except Exception as e:
+        print(f"[hestia] fetch_all FAILED: {type(e).__name__}: {e}")
         return {"error": str(e)}, []
 
     now = datetime.now(timezone.utc)
     acct = []
     total_bytes = 0
     all_domains = []
+    skipped_users = []
 
     for username, udata in users.items():
         if username == "admin":
@@ -62,6 +69,7 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
 
         domains = udata["domains"]
         if not domains:
+            skipped_users.append(username)
             continue
 
         bwusage = []
@@ -100,6 +108,10 @@ async def fetch_all(client: httpx.AsyncClient) -> tuple[dict, list]:
             "owner": "root",
             "totalbytes": user_bytes,
         })
+
+    if skipped_users:
+        print(f"[hestia] skipped users with no domains (could be legit OR a failed fetch above): {skipped_users}")
+    print(f"[hestia] fetch_all summary: accounts_sent={[a['user'] for a in acct]} total_domains={len(all_domains)} total_bytes={total_bytes}")
 
     bandwidth = {
         "metadata": {"result": 1, "version": 1, "command": "showbw", "reason": "OK"},

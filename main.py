@@ -160,14 +160,27 @@ async def verify_jwt_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+def _raise_with_body(resp: httpx.Response, label: str):
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        print(f"[send] {label} FAILED: status={resp.status_code} body={resp.text[:500]!r}")
+        raise e
+
 async def send_domains_to_server(domains, balances, bandwidth):
     client = app.state.http_client
+    bw_acct = (bandwidth or {}).get("data", {}).get("acct") if isinstance(bandwidth, dict) else None
+    if isinstance(bw_acct, list):
+        print(f"[send] bandwidth accounts={[a.get('user') for a in bw_acct]} domains_in_bandwidth={sum(len(a.get('bwusage') or []) for a in bw_acct)}")
+    else:
+        print(f"[send] bandwidth has no usable data.acct, raw={bandwidth!r}")
+
     team_resp = await client.post(
         f"{SERVER_API_URL}/api/team/update-team",
         json={"name": TEAM},
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )
-    team_resp.raise_for_status()
+    _raise_with_body(team_resp, "update-team")
     team_id = team_resp.json().get("teamId")
     account_data = {
         "server_name": NAME,
@@ -184,8 +197,9 @@ async def send_domains_to_server(domains, balances, bandwidth):
         json=account_data,
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )
-    acc_resp.raise_for_status()
+    _raise_with_body(acc_resp, "update-account")
     account_id = acc_resp.json().get("accountId")
+    print(f"[send] update-account OK accountId={account_id}")
     if not (isinstance(domains, list) and domains):
         return
     domain_data_array = []
@@ -242,7 +256,7 @@ async def send_domains_to_server(domains, balances, bandwidth):
         json=data_to_send,
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )
-    resp.raise_for_status()
+    _raise_with_body(resp, "domains/array")
 
 def format_date(date_str: Optional[str]):
     if not date_str:
@@ -259,6 +273,7 @@ async def fetch_and_send_info():
     bandwidth = {}
     info = {"allDomains": [], "balances": {}}
 
+    print(f"[fetch] starting cycle, panel_type={PANEL_TYPE}")
     if PANEL_TYPE == "hestia":
         bandwidth, _ = await hestia_fetch_all(insecure_client)
         if DRY_RUN:
@@ -280,6 +295,7 @@ async def fetch_and_send_info():
                 print(info)
 
     await send_domains_to_server(info.get("allDomains", []), info.get("balances", {}), bandwidth)
+    print(f"[fetch] cycle complete, sent {len(info.get('allDomains', []))} namecheap domains")
     return f"Fetched {len(info.get('allDomains', []))} domains"
 
 @app.get("/fetch-namecheap-domains")

@@ -363,11 +363,11 @@ async def startup_event():
 
     async def loop():
         while True:
+            await asyncio.sleep(6 * 60 * 60)
             try:
                 await fetch_and_send_info()
             except Exception as e:
                 print(f"Error in cron fetch: {str(e)}")
-            await asyncio.sleep(6 * 60 * 60)
 
     asyncio.create_task(loop())
 

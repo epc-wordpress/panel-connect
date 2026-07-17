@@ -9,6 +9,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import httpx
 import jwt as pyjwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -41,6 +45,13 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 PANEL_TYPE = os.getenv("PANEL_TYPE", "whm")
 
 app = FastAPI()
+
+# Rate limiting — keyed by source IP. Port 18080 is exposed to the internet
+# on every panel server, so this is the app's own backstop against scanning/
+# brute-force/DoS traffic, independent of anything at the firewall level.
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 origins = [CLIENT_URL] if IS_PRODUCTION and CLIENT_URL else ["*"]
 app.add_middleware(
@@ -158,6 +169,12 @@ async def verify_jwt_middleware(request: Request, call_next):
         )
 
     return await call_next(request)
+
+
+# Added after the JWT middleware so Starlette applies it as the outermost
+# layer (last-added middleware wraps first) — floods get rejected by the
+# limiter before we spend cycles on JWKS lookups / signature verification.
+app.add_middleware(SlowAPIMiddleware)
 
 
 def _raise_with_body(resp: httpx.Response, label: str):
@@ -292,6 +309,7 @@ async def fetch_and_send_info():
     return f"Fetched {len(info.get('allDomains', []))} domains"
 
 @app.get("/fetch-namecheap-domains")
+@limiter.limit("2/minute")
 async def fetch_endpoint(request: Request):
     result = await fetch_and_send_info()
     return {"result": result}
@@ -307,6 +325,7 @@ class DNSRecordsUpdate(BaseModel):
     records: List[DNSRecord]
 
 @app.get("/dns-records/{domain}")
+@limiter.limit("30/minute")
 async def get_dns_records(domain: str, request: Request):
     try:
         client = request.app.state.http_client
@@ -320,6 +339,7 @@ async def get_dns_records(domain: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {str(e)}")
 
 @app.put("/dns-records/{domain}")
+@limiter.limit("10/minute")
 async def update_dns_records(domain: str, update_data: DNSRecordsUpdate, request: Request):
     try:
         client = request.app.state.http_client

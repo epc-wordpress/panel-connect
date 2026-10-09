@@ -187,7 +187,7 @@ def _raise_with_body(resp: httpx.Response, label: str):
 async def send_domains_to_server(domains, balances, bandwidth):
     client = app.state.http_client
     team_resp = await client.post(
-        f"{SERVER_API_URL}/api/team/update-team",
+        f"{SERVER_API_URL}/panel/team/update-team",
         json={"name": TEAM},
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )
@@ -204,7 +204,7 @@ async def send_domains_to_server(domains, balances, bandwidth):
         "bandwidth": bandwidth,
     }
     acc_resp = await client.post(
-        f"{SERVER_API_URL}/api/team/update-account",
+        f"{SERVER_API_URL}/panel/team/update-account",
         json=account_data,
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )
@@ -263,7 +263,7 @@ async def send_domains_to_server(domains, balances, bandwidth):
         })
     data_to_send = {"accountId": account_id, "domains": domain_data_array}
     resp = await client.post(
-        f"{SERVER_API_URL}/api/domains/array",
+        f"{SERVER_API_URL}/panel/domains/array",
         json=data_to_send,
         headers={"Authorization": f"Bearer {SERVER_API_TOKEN}", "Content-Type": "application/json"},
     )

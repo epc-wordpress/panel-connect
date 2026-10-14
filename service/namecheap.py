@@ -201,6 +201,8 @@ async def set_domain_dns_records(client: httpx.AsyncClient, domain: str, records
             "ClientIp": quote(CLIENT_IP),
         }
 
+        has_mx = False
+
         for idx, record in enumerate(records, start=1):
             if not isinstance(record, dict):
                 raise ValueError(f"Record {idx} must be a dictionary")
@@ -216,14 +218,25 @@ async def set_domain_dns_records(client: httpx.AsyncClient, domain: str, records
             params[f"RecordType{idx}"] = quote(str(record_type).upper())
             params[f"Address{idx}"] = quote(str(address))
 
-            if record_type.upper() == "MX" and record.get("mxPref") is not None:
-                params[f"MXPref{idx}"] = quote(str(record.get("mxPref")))
+            if record_type.upper() == "MX":
+                has_mx = True
+                mx_pref = record.get("mxPref")
+                params[f"MXPref{idx}"] = quote(str(mx_pref if mx_pref is not None else 10))
 
             if record.get("ttl") is not None:
                 ttl = int(record.get("ttl"))
                 if ttl < 60 or ttl > 60000:
                     raise ValueError(f"Record {idx} TTL must be between 60 and 60000")
                 params[f"TTL{idx}"] = quote(str(ttl))
+
+        # NameCheap's setHosts silently drops every MX host record in the call
+        # unless EmailType=MX is also present — it's not tied to any one record,
+        # it tells the whole call "we're configuring custom MX", so it's only
+        # sent when the batch actually includes an MX record (sending it
+        # otherwise would force the domain into custom-MX mode even when the
+        # caller never touched mail routing).
+        if has_mx:
+            params["EmailType"] = "MX"
 
         query_string = "&".join([f"{k}={v}" for k, v in params.items()])
         api_url = f"https://api.namecheap.com/xml.response?{query_string}"

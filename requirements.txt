@@ -8,4 +8,3 @@ python-dotenv==1.0.0
 apscheduler==3.10.1
 setuptools>=65.0.0
 slowapi==0.1.9
-aiolimiter==1.1.0

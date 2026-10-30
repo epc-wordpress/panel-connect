@@ -1,22 +1,37 @@
 import os
 import random
 import asyncio
+import time
 import httpx
 import xmltodict
 from urllib.parse import quote
-from aiolimiter import AsyncLimiter
 
 API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
 
 # NameCheap enforces its own rate limit per ApiKey (account-wide, ~20
-# requests/minute), independent of which caller/IP triggered the request.
-# Every call in this module funnels through one shared limiter so bursts
-# (e.g. many students saving DNS around the same time) queue here instead
-# of getting rejected by NameCheap with "Too many requests".
-_namecheap_limiter = AsyncLimiter(20, 60)
+# requests/minute), independent of which caller/IP triggered the request, and
+# appears to also reject a burst of near-simultaneous calls even when the
+# per-minute average is within budget. So instead of a token bucket (which
+# lets a full burst of 20 through at once), every call is paced to a strict
+# minimum gap — no more than one request every _MIN_INTERVAL seconds, ever.
+# Excess callers just wait their turn.
+_MIN_INTERVAL = 60 / 20
+_pacer_lock = asyncio.Lock()
+_last_call_at = 0.0
 _MAX_RETRIES = 4
+
+
+async def _pace_namecheap_call():
+    global _last_call_at
+    async with _pacer_lock:
+        now = time.monotonic()
+        wait = _last_call_at + _MIN_INTERVAL - now
+        if wait > 0:
+            await asyncio.sleep(wait)
+            now = time.monotonic()
+        _last_call_at = now
 
 def _extract_namecheap_error(data: dict | None) -> str | None:
     if not data:
@@ -40,8 +55,8 @@ async def _namecheap_get(client: httpx.AsyncClient, url: str) -> dict:
     """GET a NameCheap API URL through the shared limiter, retrying with
     backoff + jitter if NameCheap itself reports "Too many requests"."""
     for attempt in range(_MAX_RETRIES + 1):
-        async with _namecheap_limiter:
-            r = await client.get(url)
+        await _pace_namecheap_call()
+        r = await client.get(url)
         r.raise_for_status()
 
         data = xmltodict.parse(r.text)

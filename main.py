@@ -324,8 +324,11 @@ class DNSRecord(BaseModel):
 class DNSRecordsUpdate(BaseModel):
     records: List[DNSRecord]
 
+# Authenticated routes (JWT middleware above) — exempt from the anti-abuse
+# IP limiter. The real constraint is NameCheap's account-wide API quota,
+# throttled centrally in service/namecheap.py instead.
 @app.get("/dns-records/{domain}")
-@limiter.limit("30/minute")
+@limiter.exempt
 async def get_dns_records(domain: str, request: Request):
     try:
         client = request.app.state.http_client
@@ -339,7 +342,7 @@ async def get_dns_records(domain: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {str(e)}")
 
 @app.put("/dns-records/{domain}")
-@limiter.limit("10/minute")
+@limiter.exempt
 async def update_dns_records(domain: str, update_data: DNSRecordsUpdate, request: Request):
     try:
         client = request.app.state.http_client

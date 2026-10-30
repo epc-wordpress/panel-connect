@@ -1,11 +1,22 @@
 import os
+import random
+import asyncio
 import httpx
 import xmltodict
 from urllib.parse import quote
+from aiolimiter import AsyncLimiter
 
 API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
 CLIENT_IP = os.getenv("CLIENT_IP")
+
+# NameCheap enforces its own rate limit per ApiKey (account-wide, ~20
+# requests/minute), independent of which caller/IP triggered the request.
+# Every call in this module funnels through one shared limiter so bursts
+# (e.g. many students saving DNS around the same time) queue here instead
+# of getting rejected by NameCheap with "Too many requests".
+_namecheap_limiter = AsyncLimiter(20, 60)
+_MAX_RETRIES = 4
 
 def _extract_namecheap_error(data: dict | None) -> str | None:
     if not data:
@@ -25,6 +36,27 @@ def _extract_namecheap_error(data: dict | None) -> str | None:
     return str(errors)
 
 
+async def _namecheap_get(client: httpx.AsyncClient, url: str) -> dict:
+    """GET a NameCheap API URL through the shared limiter, retrying with
+    backoff + jitter if NameCheap itself reports "Too many requests"."""
+    for attempt in range(_MAX_RETRIES + 1):
+        async with _namecheap_limiter:
+            r = await client.get(url)
+        r.raise_for_status()
+
+        data = xmltodict.parse(r.text)
+        err = _extract_namecheap_error(data)
+        if err:
+            if "too many requests" in err.lower() and attempt < _MAX_RETRIES:
+                await asyncio.sleep((2 ** attempt) + random.uniform(0, 1))
+                continue
+            raise RuntimeError(err)
+
+        return data
+
+    raise RuntimeError("NameCheap API error: Too many requests")
+
+
 async def fetch_balances(client: httpx.AsyncClient):
     try:
         api_url = (
@@ -34,14 +66,7 @@ async def fetch_balances(client: httpx.AsyncClient):
             f"&ClientIp={quote(CLIENT_IP)}"
         )
 
-        r = await client.get(api_url)
-
-        r.raise_for_status()
-
-        data = xmltodict.parse(r.text)
-        err = _extract_namecheap_error(data)
-        if err:
-            raise RuntimeError(err)
+        data = await _namecheap_get(client, api_url)
 
         command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
         balance_result = command_response.get("UserGetBalancesResult")
@@ -71,13 +96,7 @@ async def fetch_namecheap(client: httpx.AsyncClient):
             f"&ClientIp={quote(CLIENT_IP)}&Pagesize=100"
         )
 
-        r = await client.get(f"{base_api_url}&Page=1")
-        r.raise_for_status()
-
-        data = xmltodict.parse(r.text)
-        err = _extract_namecheap_error(data)
-        if err:
-            raise RuntimeError(err)
+        data = await _namecheap_get(client, f"{base_api_url}&Page=1")
 
         command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
         paging = command_response.get("Paging") or {}
@@ -91,10 +110,7 @@ async def fetch_namecheap(client: httpx.AsyncClient):
             all_domains = [all_domains]
 
         for page in range(2, total_pages + 1):
-            r = await client.get(f"{base_api_url}&Page={page}")
-            r.raise_for_status()
-
-            page_data = xmltodict.parse(r.text)
+            page_data = await _namecheap_get(client, f"{base_api_url}&Page={page}")
             paginated_command = (page_data.get("ApiResponse") or {}).get("CommandResponse") or {}
             result = paginated_command.get("DomainGetListResult") or {}
             domains_on_page = result.get("Domain") or []
@@ -142,13 +158,7 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
             f"&ClientIp={quote(CLIENT_IP)}"
         )
 
-        r = await client.get(api_url)
-        r.raise_for_status()
-
-        data = xmltodict.parse(r.text)
-        err = _extract_namecheap_error(data)
-        if err:
-            raise RuntimeError(err)
+        data = await _namecheap_get(client, api_url)
 
         command_response = (data.get("ApiResponse") or {}).get("CommandResponse") or {}
         result = command_response.get("DomainDNSGetHostsResult")
@@ -229,25 +239,13 @@ async def set_domain_dns_records(client: httpx.AsyncClient, domain: str, records
                     raise ValueError(f"Record {idx} TTL must be between 60 and 60000")
                 params[f"TTL{idx}"] = quote(str(ttl))
 
-        # NameCheap's setHosts silently drops every MX host record in the call
-        # unless EmailType=MX is also present — it's not tied to any one record,
-        # it tells the whole call "we're configuring custom MX", so it's only
-        # sent when the batch actually includes an MX record (sending it
-        # otherwise would force the domain into custom-MX mode even when the
-        # caller never touched mail routing).
         if has_mx:
             params["EmailType"] = "MX"
 
         query_string = "&".join([f"{k}={v}" for k, v in params.items()])
         api_url = f"https://api.namecheap.com/xml.response?{query_string}"
 
-        r = await client.get(api_url)
-        r.raise_for_status()
-
-        data = xmltodict.parse(r.text)
-        err = _extract_namecheap_error(data)
-        if err:
-            raise RuntimeError(err)
+        data = await _namecheap_get(client, api_url)
 
         command_response = data.get("ApiResponse", {}).get("CommandResponse")
         if not command_response:

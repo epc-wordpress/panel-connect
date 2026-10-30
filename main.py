@@ -339,7 +339,7 @@ async def get_dns_records(domain: str, request: Request):
             "count": len(records)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch DNS records: {e or type(e).__name__}")
 
 @app.put("/dns-records/{domain}")
 @limiter.exempt

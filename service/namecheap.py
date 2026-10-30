@@ -53,11 +53,24 @@ def _extract_namecheap_error(data: dict | None) -> str | None:
 
 async def _namecheap_get(client: httpx.AsyncClient, url: str) -> dict:
     """GET a NameCheap API URL through the shared limiter, retrying with
-    backoff + jitter if NameCheap itself reports "Too many requests"."""
+    backoff + jitter if NameCheap itself reports "Too many requests", or if
+    the request times out / fails at the transport level (httpx's timeout
+    exceptions commonly stringify to "", which otherwise surfaces as an
+    unhelpful blank error message to the caller)."""
+    last_transport_err: Exception | None = None
+
     for attempt in range(_MAX_RETRIES + 1):
         await _pace_namecheap_call()
-        r = await client.get(url)
-        r.raise_for_status()
+
+        try:
+            r = await client.get(url)
+            r.raise_for_status()
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+            last_transport_err = e
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep((2 ** attempt) + random.uniform(0, 1))
+                continue
+            raise RuntimeError(f"NameCheap request failed: {type(e).__name__}: {e or 'no details'}") from e
 
         data = xmltodict.parse(r.text)
         err = _extract_namecheap_error(data)
@@ -69,7 +82,7 @@ async def _namecheap_get(client: httpx.AsyncClient, url: str) -> dict:
 
         return data
 
-    raise RuntimeError("NameCheap API error: Too many requests")
+    raise RuntimeError(f"NameCheap API error: Too many requests ({last_transport_err or 'exhausted retries'})")
 
 
 async def fetch_balances(client: httpx.AsyncClient):

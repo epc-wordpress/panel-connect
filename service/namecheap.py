@@ -5,6 +5,9 @@ import time
 import httpx
 import xmltodict
 from urllib.parse import quote
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_USER = os.getenv("API_USER")
 API_KEY = os.getenv("API_KEY")
@@ -83,6 +86,12 @@ async def _namecheap_get(client: httpx.AsyncClient, url: str) -> dict:
         return data
 
     raise RuntimeError(f"NameCheap API error: Too many requests ({last_transport_err or 'exhausted retries'})")
+
+
+def _require_env():
+    missing = [n for n, v in (("API_USER", API_USER), ("API_KEY", API_KEY), ("CLIENT_IP", CLIENT_IP)) if not (v or "").strip()]
+    if missing:
+        raise RuntimeError(f"NameCheap env vars missing or empty: {', '.join(missing)}")
 
 
 async def fetch_balances(client: httpx.AsyncClient):
@@ -166,8 +175,7 @@ async def fetch_namecheap(client: httpx.AsyncClient):
 
 async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
     try:
-        if not (API_USER and API_KEY and CLIENT_IP):
-            raise RuntimeError("NameCheap env vars missing: API_USER/API_KEY/CLIENT_IP")
+        _require_env()
 
         d = (domain or "").strip()
         d = d.replace("https://", "").replace("http://", "")
@@ -215,8 +223,7 @@ async def fetch_domain_dns_records(client: httpx.AsyncClient, domain: str):
 
 async def set_domain_dns_records(client: httpx.AsyncClient, domain: str, records: list):
     try:
-        if not (API_USER and API_KEY and CLIENT_IP):
-            raise RuntimeError("NameCheap env vars missing: API_USER/API_KEY/CLIENT_IP")
+        _require_env()
 
         d = (domain or "").strip()
         d = d.replace("https://", "").replace("http://", "")
